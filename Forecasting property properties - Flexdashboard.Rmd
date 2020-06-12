@@ -1,0 +1,612 @@
+---
+title: "Forecasting property prices in New York"
+runtime: shiny
+output: 
+  flexdashboard::flex_dashboard:
+    social: [ "twitter",  "facebook", "linkedin", "github"]
+    orientation: rows
+    vertical_layout: fill
+    
+---
+
+```{r setup, include=FALSE}
+library(flexdashboard)
+library(knitr)
+library(dlookr)
+library(dplyr)
+library(tidyverse) # general utility functions
+library(purrr)
+library(tidyr)
+library(ggplot2)
+library(DT)
+library(rsconnect)
+library(corrplot)
+library(shiny)
+library(Matrix)
+library(fpp)
+library(astsa)
+```
+
+```{r global, include=FALSE}
+# load data in 'global' chunk so it can be shared by all users of the dashboard
+zillow.data <- read.csv("Zip_Zhvi_2bedroom.csv", header=T)
+
+df <- data.frame(z=0, p=0, d=0, q=0)
+```
+
+```{r echo=FALSE, warning=FALSE,message=F, warning=F}
+
+# Load data ---------------------------------------------------------------
+
+zillow.data <- read.csv("Zip_Zhvi_2bedroom.csv", header=T)
+#head(zillow.data)
+
+
+# Subsetting data  --------------------------------------------------------
+
+zillow.data <- subset(zillow.data, City=='New York')
+zillow.data <- subset(zillow.data, RegionID!=62012)  #removed since it has numerous NA's
+
+
+# wide --> long -----------------------------------------------------------
+
+zillow.long<-gather(zillow.data,Year,Price,-c("RegionID","RegionName","City","State","Metro","CountyName","SizeRank"),factor_key = TRUE)
+#head(zillow.long)
+#dim(zillow.long)
+
+invisible(lapply(zillow.long,class))
+
+
+# wrangling date column ---------------------------------------------------
+
+zillow.long$Year<-substring(zillow.long$Year, 2)
+zillow.long$month<- substr(zillow.long$Year, 6, nchar(zillow.long$Year))
+zillow.long$Year<-substr(zillow.long$Year, 1, 4)
+
+zillow.long$day<-1
+zillow.long$date <- as.Date(with(zillow.long, paste(Year, month, day,sep="-")), "%Y-%m-%d")
+
+drops <- c("Year","month","day")
+zillow.long<-zillow.long[ , !(names(zillow.long) %in% drops)]
+
+
+zillow.long$RegionID<-as.factor(zillow.long$RegionID)
+zillow.long$RegionName<-as.factor(zillow.long$RegionName)
+zillow.df<-zillow.long
+#tail(zillow.df)
+
+
+# Sorting data ------------------------------------------------------------
+
+zillow.df<-zillow.df[order(zillow.df$SizeRank),]
+
+
+# Subsetting to consider data from 2006 ---------------------------------------
+
+zillow.df<-zillow.df %>%
+  group_by(RegionID) %>% 
+  filter(date >= as.Date("2006-01-01"))
+#dim(zillow.df)
+#summary(zillow.df)
+
+
+# Retaining only the required cols ----------------------------------------
+
+zillow_subset<-zillow.df[,c('RegionName','Price','date')]
+#dim(zillow_subset)
+zillow_subset<-spread(zillow_subset,RegionName,Price)
+#dim(zillow_subset)
+
+
+# Converting to timeseries ------------------------------------------------
+
+zillow.forecast<-ts(zillow_subset,frequency = 12,start = 2006)
+#head(zillow.forecast)
+#dim(zillow.forecast)
+zillow.forecast<-zillow.forecast[,-1]
+#head(zillow.forecast)
+
+zillow.col <-  colnames(zillow.forecast)
+
+n<-dim(zillow.forecast)[2]
+zillow.all<-zillow.forecast #can add all columns
+invisible(dim(zillow.all))
+    
+
+# Best models  -------------------------------------------------------------
+
+mybestmodels<- function(zipcode){
+  
+  if(zipcode=='10003'){
+    ts<-zillow.all[,1]
+    (fit1 <- Arima(ts, order=c(2,2,3), seasonal=c(1,0,0),include.constant = FALSE,lambda=0))
+    # summary(fit1)
+    # checkresiduals(fit1)  #diagnostics
+    # fit1 %>% forecast(h=36) 
+    
+  }
+  
+  else if (zipcode=='10011'){
+    ts<-zillow.all[,2]
+    (fit1 <- Arima(ts, order=c(1,2,3), seasonal=c(2,0,0),include.constant = FALSE,lambda=0))
+    # summary(fit1)
+    # checkresiduals(fit1)  #diagnostics
+    # fit1 %>% forecast(h=36) %>% autoplot()
+    
+  }
+  
+  else if (zipcode=='10013'){
+    ts<-zillow.all[,2]
+    (fit1 <- Arima(ts, order=c(0,1,3), seasonal=c(3,0,0),include.constant = FALSE,lambda=0))
+    # summary(fit1)
+    # checkresiduals(fit1)  #diagnostics
+    # fit1 %>% forecast(h=36) %>% autoplot()
+    
+  }
+  
+  else if (zipcode=='10014'){
+    ts<-zillow.all[,2]
+    (fit1 <- Arima(ts, order=c(0,1,2), seasonal=c(2,0,0),include.constant = FALSE,lambda=0))
+    # summary(fit1)
+    # checkresiduals(fit1)  #diagnostics
+    # fit1 %>% forecast(h=36) %>% autoplot()
+    
+  }
+  
+  else if (zipcode=='10021'){
+    ts<-zillow.all[,2]
+    (fit1 <- Arima(ts, order=c(3,1,2), seasonal=c(1,0,0),include.constant = FALSE,lambda=0))
+    # summary(fit1)
+    # checkresiduals(fit1)  #diagnostics
+    # fit1 %>% forecast(h=36) %>% autoplot()
+    
+  }
+  
+  else if (zipcode=='10022'){
+    ts<-zillow.all[,2]
+    (fit1 <- Arima(ts, order=c(1,1,3), seasonal=c(2,0,0),include.constant = FALSE,lambda=0))
+    # summary(fit1)
+    # checkresiduals(fit1)  #diagnostics
+    # fit1 %>% forecast(h=36) %>% autoplot()
+    
+  }
+  
+  else if (zipcode=='10023'){
+    ts<-zillow.all[,2]
+    (fit1 <- Arima(ts, order=c(1,2,3), seasonal=c(1,0,1),include.constant = FALSE,lambda=0))
+    summary(fit1)
+    # checkresiduals(fit1)  #diagnostics
+    # fit1 %>% forecast(h=36) %>% autoplot()
+    
+  }
+  
+  else if (zipcode=='10025'){
+    ts<-zillow.all[,2]
+    (fit1 <- Arima(ts, order=c(3,2,3), seasonal=c(3,0,0),include.constant = FALSE,lambda=0))
+    # summary(fit1)
+    # checkresiduals(fit1)  #diagnostics
+    # fit1 %>% forecast(h=36) %>% autoplot()
+    
+  }
+  
+  else if (zipcode=='10028'){
+    ts<-zillow.all[,2]
+    (fit1 <- Arima(ts, order=c(0,2,3), seasonal=c(0,0,0),include.constant = FALSE,lambda=0))
+    # summary(fit1)
+    # checkresiduals(fit1)  #diagnostics
+    # fit1 %>% forecast(h=36) %>% autoplot()
+    
+  }
+  
+  else if (zipcode=='10036'){
+    ts<-zillow.all[,2]
+    (fit1 <- Arima(ts, order=c(3,1,2), seasonal=c(3,0,0),include.constant = FALSE,lambda=0))
+    # summary(fit1)
+    # checkresiduals(fit1)  #diagnostics
+    # fit1 %>% forecast(h=36) %>% autoplot()
+    
+  }
+  
+  else if (zipcode=='10128'){
+    ts<-zillow.all[,2]
+    (fit1 <- Arima(ts, order=c(5,2,2), seasonal=c(0,0,1),include.constant = FALSE,lambda=0))
+    # summary(fit1)
+    # checkresiduals(fit1)  #diagnostics
+    # fit1 %>% forecast(h=36) %>% autoplot()
+    
+  }
+  
+  else if (zipcode=='10303'){
+    ts<-zillow.all[,2]
+    (fit1 <- Arima(ts, order=c(3,2,3), seasonal=c(3,0,0),include.constant = FALSE,lambda=0))
+    # summary(fit1)
+    # checkresiduals(fit1)  #diagnostics
+    # fit1 %>% forecast(h=36) %>% autoplot()
+    
+  }
+  
+  
+  else if (zipcode=='10304'){
+    ts<-zillow.all[,2]
+    (fit1 <- Arima(ts, order=c(0,2,3), seasonal=c(1,0,0),include.constant = FALSE,lambda=0))
+    # summary(fit1)
+    # checkresiduals(fit1)  #diagnostics
+    # fit1 %>% forecast(h=36) %>% autoplot()
+    
+  }
+  
+  
+  else if (zipcode=='10306'){
+    ts<-zillow.all[,2]
+    (fit1 <- Arima(ts, order=c(1,2,3), seasonal=c(2,0,0),include.constant = FALSE,lambda=0))
+    # summary(fit1)
+    # checkresiduals(fit1)  #diagnostics
+    # fit1 %>% forecast(h=36) %>% autoplot()
+    
+  }
+  
+  else if (zipcode=='10309'){
+    ts<-zillow.all[,2]
+    (fit1 <- Arima(ts, order=c(0,2,3), seasonal=c(2,0,1),include.constant = FALSE,lambda=0))
+    # summary(fit1)
+    # checkresiduals(fit1)  #diagnostics
+    # fit1 %>% forecast(h=36) %>% autoplot()
+    
+  }
+  
+  else if (zipcode=='10314'){
+    ts<-zillow.all[,2]
+    (fit1 <- Arima(ts, order=c(1,2,3), seasonal=c(0,0,0),include.constant = FALSE,lambda=0))
+    # summary(fit1)
+    # checkresiduals(fit1)  #diagnostics
+    # fit1 %>% forecast(h=36) %>% autoplot()
+    
+  }
+  
+  else if (zipcode=='11215'){
+    ts<-zillow.all[,2]
+    (fit1 <- Arima(ts, order=c(1,2,3), seasonal=c(2,0,0),include.constant = FALSE,lambda=0))
+    # summary(fit1)
+    # checkresiduals(fit1)  #diagnostics
+    # fit1 %>% forecast(h=36) %>% autoplot()
+    
+  }
+  
+  else if (zipcode=='11217'){
+    ts<-zillow.all[,2]
+    (fit1 <- Arima(ts, order=c(1,2,3), seasonal=c(1,0,0),include.constant = FALSE,lambda=0))
+    # summary(fit1)
+    # checkresiduals(fit1)  #diagnostics
+    # fit1 %>% forecast(h=36) %>% autoplot()
+    
+  }
+  
+  else if (zipcode=='11231'){
+    ts<-zillow.all[,2]
+    (fit1 <- Arima(ts, order=c(0,2,3), seasonal=c(3,0,0),include.constant = FALSE,lambda=0))
+    # summary(fit1)
+    # checkresiduals(fit1)  #diagnostics
+    # fit1 %>% forecast(h=36) %>% autoplot()
+    
+  }
+  
+  else if (zipcode=='11234'){
+    ts<-zillow.all[,2]
+    (fit1 <- Arima(ts, order=c(1,2,3), seasonal=c(3,0,0),include.constant = FALSE,lambda=0))
+    # summary(fit1)
+    # checkresiduals(fit1)  #diagnostics
+    # fit1 %>% forecast(h=36) %>% autoplot()
+    
+  }
+  
+  else if (zipcode=='11434'){
+    ts<-zillow.all[,2]
+    (fit1 <- Arima(ts, order=c(1,2,3), seasonal=c(2,0,0),include.constant = FALSE,lambda=0))
+    # summary(fit1)
+    # checkresiduals(fit1)  #diagnostics
+    # fit1 %>% forecast(h=36) %>% autoplot()
+    
+  }
+  
+  else if (zipcode=='11308'){
+    ts<-zillow.all[,2]
+    (fit1 <- Arima(ts, order=c(2,2,3), seasonal=c(3,0,0),include.constant = FALSE,lambda=0))
+    # summary(fit1)
+    # checkresiduals(fit1)  #diagnostics
+    # fit1 %>% forecast(h=36) %>% autoplot()
+    
+  }
+  
+  else if (zipcode=='11312'){
+    ts<-zillow.all[,2]
+    (fit1 <- Arima(ts, order=c(1,2,3), seasonal=c(3,0,0),include.constant = FALSE,lambda=0))
+    # summary(fit1)
+    # checkresiduals(fit1)  #diagnostics
+    # fit1 %>% forecast(h=36) %>% autoplot()
+    
+  }
+  
+  return(fit1)
+  
+  
+  
+}
+
+   
+```
+
+
+Sidebar {.sidebar}
+=======================================================================
+
+### Input Controls
+
+
+
+```{r}
+zipcodes = colnames(zillow.forecast)
+
+zipcodeoptions = data.frame(Zipcodes=zipcodes)
+
+selectInput("genreInput", label = "Select Zipcode",
+          choices = c(levels(zipcodeoptions$Zipcodes)), selected = zipcodeoptions$Zipcodes[0])
+
+sliderInput("P", "p:",
+            min = 0, max = 3, value = 1, step = 1.0
+)
+
+sliderInput("D", "d:",
+            min = 0, max =3, value = 1, step = 1.0
+)
+
+sliderInput("Q", "q:",
+            min = 0, max =3, value = 1, step = 1.0
+)
+
+sliderInput("bigP", "P:",
+            min = 0, max = 3, value = 1, step = 1.0
+)
+sliderInput("bigQ", "Q:",
+            min = 0, max = 3, value = 1, step = 1.0
+)
+sliderInput("bigD", "D:",
+            min = 0, max = 3, value = 1, step = 1.0
+)
+
+
+
+```
+
+Introduction
+=======================================================================
+Column {data-width=650}
+-----------------------------------------------------------------------
+### Zillow's Business Model
+
+Zillow Group, Inc., or simply Zillow, is a leading real estate and rental marketplace founded in 2006 and headquartered in Seattle. Zillow is involved in buying, selling, renting, financing, remodeling of properties and also has a living database of more than 110 million U.S. homes - including
+???	Homes for sale
+???	Homes for rent &
+???	Homes not currently on the market
+Zillow also lists the prices of the properties that are not on the market. Zillow estimates or "Zestimates" as they are popularly known is Zillow's estimate of a home's market value. The Zestimate incorporates public and user-submitted data, considering home facts, location and market conditions.
+
+What is the need of the hour?
+
+The Zestimate is marketed as a tool designed to take the mystery out of real estate for consumers who would otherwise have to rely on brokers and guesswork. However, "Zestimates" often give a single time point value which might not be an accurate way to base the decision of purchase on. 
+To make an informed purchase decision, investors or buyers need to be aware of the past trends and how the trends might affect the market henceforth. The purpose of this project is to address this want of the investors by leveraging the information at hand to evaluate the property prices up to the current time point and also understand the anticipated market trends for a reasonable period in the future
+
+How do we go about it?
+
+Currently the database at our disposal has a zip code level data for properties in the US. The price points are updated only till 2017. 
+Our objective here is to create a scalable product to forecast the prices of these properties up till 2020 (with a scope of additional forecasts for the future). For the purpose of this project, we are concentrating specifically on the 2-bedroom properties in New York city (NYC). 
+The ensuing report will showcase the results of 3 randomly selected zip codes in NYC (10013, 10011, 10003) and a step by step understanding of all the processes from cleaning and manipulation of the data to forecasting the data and performing adequacy checks. An R shiny app is also created to give a better visual and functional experience to the investors browsing the app.
+
+
+
+<!-- Dashboard -->
+<!-- ======================================================================= -->
+<!-- Column {data-width=350} -->
+<!-- ----------------------------------------------------------------------- -->
+<!-- ### Residuals -->
+<!-- ```{r} -->
+
+<!-- # Best models  ------------------------------------------------------------- -->
+<!-- ts<-zillow.all[,9] -->
+<!-- (fit1 <- Arima(ts, order=c(0,2,3), seasonal=c(0,0,0),include.constant = FALSE,lambda=0)) -->
+<!-- #summary(fit1) -->
+<!-- checkresiduals(fit1)  #diagnostics -->
+
+<!-- ``` -->
+
+<!-- Column {data-width=350} -->
+<!-- ----------------------------------------------------------------------- -->
+<!-- ### Plot -->
+<!-- ```{r} -->
+<!-- renderPlot({ -->
+<!-- fit1 %>% forecast(h=36) %>% autoplot() -->
+
+<!-- }) -->
+<!-- ``` -->
+
+<!-- Column {data-width=350} -->
+<!-- ----------------------------------------------------------------------- -->
+<!-- ### Residuals -->
+
+<!-- ```{r} -->
+<!-- ts<-zillow.all[,9] -->
+
+<!-- (fit2 <- Arima(ts, order=c(2,2,3), seasonal=c(1,0,0),include.constant = FALSE,lambda=0)) -->
+<!-- #summary(fit2) -->
+<!-- checkresiduals(fit2)  # diagnostics -->
+<!-- #acf(resid(fit2)) -->
+<!-- ``` -->
+
+
+<!-- Column {data-width=350} -->
+<!-- ------------------------------------------------------------- -->
+<!-- ### Plot -->
+<!-- ```{r} -->
+<!-- renderPlot({ -->
+<!-- fit2 %>% forecast(h=36) %>% autoplot() -->
+
+<!-- }) -->
+<!-- ``` -->
+
+
+
+<!-- Summary -->
+<!-- ======================================================================= -->
+<!-- Column {data-width=650} -->
+<!-- ----------------------------------------------------------------------- -->
+
+<!-- ### Section A -->
+
+
+<!-- Diagnosis -->
+<!-- ======================================================================= -->
+<!-- Column {data-width=650} -->
+<!-- ----------------------------------------------------------------------- -->
+
+<!-- ### Section A -->
+
+
+Best Model Forecasts
+=======================================================================
+Row {}
+-----------------------------------------------------------------------
+### Plot
+```{r}
+
+
+renderPlot({
+  
+  bestfit <- mybestmodels(input$genreInput)
+#   
+#   ts<-zillow.forecast[,which(zillow.col == input$genreInput)]
+#   Pval= as.numeric( input$P  )
+#   DVal = as.numeric(input$D  )
+#   BigPVal = as.numeric(input$bigP  )
+#   Qval = as.numeric(input$Q  )
+#  Zipval =as.numeric(input$genreInput)
+#   
+# #fit1 <- sarima(data,p=Pval, d = DVal, q = Qval ,P=BigPVal,Q=0,D=0,S=12,Model = TRUE)
+# #fit1 <- Arima(ts, order=c(0,2,3), seasonal=c(0,0,0),include.constant = FALSE,lambda=0))
+#  
+# (fit1 <- Arima(ts, order=c(Pval,DVal,Qval), seasonal=c(BigPVal,0,0),include.constant = FALSE,lambda=0))
+# 
+# 
+ bestfit %>% forecast(h=36) %>% autoplot()
+  
+  
+})
+```
+
+Best Model Forecast - Residual
+=======================================================================
+Column {data-width=650}
+-----------------------------------------------------------------------
+
+-----------------------------------------------------------------------
+### Residual
+```{r}
+    renderPlot({
+  
+  bestfit <- mybestmodels(input$genreInput)
+    checkresiduals(bestfit)  #diagnostics
+})
+
+   
+```
+
+
+
+
+Customizable Forecast Plot
+=======================================================================
+Column {data-width=350}
+-----------------------------------------------------------------------
+
+### Forecast Trends
+
+```{r}
+
+renderPlot({
+  Pval= as.numeric( input$P  )
+  DVal = as.numeric(input$D  )
+  Qval = as.numeric(input$Q  )
+  BigPVal = as.numeric(input$bigP  )
+  BigQval = as.numeric(input$bigQ  )
+  BigDval = as.numeric(input$bigD  )
+ Zipval =as.numeric(input$genreInput)
+  ts<-zillow.forecast[,input$genreInput]
+#fit1 <- sarima(data,p=Pval, d = DVal, q = Qval ,P=BigPVal,Q=0,D=0,S=12,Model = TRUE)
+#fit1 <- Arima(ts, order=c(0,2,3), seasonal=c(0,0,0),include.constant = FALSE,lambda=0))
+ 
+(fit1 <- Arima(ts, order=c(Pval,DVal,Qval), seasonal=c(BigPVal,BigDval,BigQval),include.constant = FALSE,lambda=0))
+
+
+fit1 %>% forecast(h=36) %>% autoplot()
+})
+```
+
+
+
+Customizable Diagnosis : Residual Analysis Plots
+=======================================================================
+Column {data-width=650}
+-----------------------------------------------------------------------
+
+### Residual Analysis Plots
+```{r}
+
+renderPlot({
+  Pval= as.numeric( input$P  )
+  DVal = as.numeric(input$D  )
+  Qval = as.numeric(input$Q  )
+  BigPVal = as.numeric(input$bigP  )
+  BigQval = as.numeric(input$bigQ  )
+  BigDval = as.numeric(input$bigD  )
+ Zipval =as.numeric(input$genreInput)
+  ts<-zillow.forecast[,input$genreInput]
+#fit1 <- sarima(data,p=Pval, d = DVal, q = Qval ,P=BigPVal,Q=0,D=0,S=12,Model = TRUE)
+#fit1 <- Arima(ts, order=c(0,2,3), seasonal=c(0,0,0),include.constant = FALSE,lambda=0))
+ 
+(fit1 <- Arima(ts, order=c(Pval,DVal,Qval), seasonal=c(BigPVal,BigDval,BigQval),include.constant = FALSE,lambda=0))
+
+
+checkresiduals(fit1) 
+})
+```
+
+
+Customizable Forecasts (User Defined Parameters)
+=======================================================================
+Column {data-width=650}
+-----------------------------------------------------------------------
+
+### Forecasted Median Property Price (user defined parameters)
+
+```{r}
+
+renderPrint({
+  Pval= as.numeric( input$P  )
+  DVal = as.numeric(input$D  )
+  Qval = as.numeric(input$Q  )
+  BigPVal = as.numeric(input$bigP  )
+  BigQval = as.numeric(input$bigQ  )
+  BigDval = as.numeric(input$bigD  )
+ Zip_Code =as.numeric(input$genreInput)
+  ts<-zillow.forecast[,input$genreInput]
+#fit1 <- sarima(data,p=Pval, d = DVal, q = Qval ,P=BigPVal,Q=0,D=0,S=12,Model = TRUE)
+#fit1 <- Arima(ts, order=c(0,2,3), seasonal=c(0,0,0),include.constant = FALSE,lambda=0))
+ 
+(fit1 <- Arima(ts, order=c(Pval,DVal,Qval), seasonal=c(BigPVal,BigDval,BigQval),include.constant = FALSE,lambda=0))
+
+Period <- c("April 2020")
+for_val <- forecast(fit1,h=34)$mean
+forecasted_price <-  for_val[34]
+dat <-  as.data.frame(cbind(Zip_Code,Period,forecasted_price))
+dat
+})
+```
+
+

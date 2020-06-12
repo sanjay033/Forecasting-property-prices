@@ -1,5 +1,5 @@
 ---
-title: " BANA 7050 final project - Group 7"
+title: " Forecasting property prices"
 author: "Anjali, Ethan, Sanjay & Vishnu"
 date: "4/28/2020"
 output:
